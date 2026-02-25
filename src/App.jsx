@@ -6,7 +6,12 @@ import {
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import {
-  getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken
+  getAuth,
+  signInAnonymously,
+  onAuthStateChanged,
+  signInWithPopup,
+  GoogleAuthProvider,
+  signOut
 } from 'firebase/auth';
 import {
   getFirestore,
@@ -45,6 +50,52 @@ try {
 } catch (e) {
   console.warn("Firebase Init Error (Offline Mode):", e);
 }
+const loginWithGoogle = async () => {
+
+  if (!auth) return;
+
+  try {
+
+    const provider = new GoogleAuthProvider();
+
+    const result = await signInWithPopup(auth, provider);
+
+    const user = result.user;
+
+    // Save user info in Firestore
+    if (db) {
+      await setDoc(doc(db, "users", user.uid), {
+        name: user.displayName,
+        email: user.email,
+        photo: user.photoURL,
+        xp: 0,
+        level: 1,
+        coins: 0,
+        energy: 100,
+        createdAt: Date.now()
+      }, { merge: true });
+    }
+
+    addToast("Welcome " + user.displayName);
+
+  } catch (e) {
+
+    console.error(e);
+
+    addToast("Login failed");
+
+  }
+
+};
+const logout = async () => {
+
+  if (!auth) return;
+
+  await signOut(auth);
+
+  setUser(null);
+
+};
 
 // ─── ASSETS ──────────────────────────────────────────────────────────────────
 const RUNNER_SVG = `
@@ -323,26 +374,21 @@ export default function App() {
 
   // ─── AUTH & SETUP ─────────────────────────────────────────────────────────
   useEffect(() => {
+
     if (!auth) return;
-    const initAuth = async () => {
-      if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-        try {
-          await signInWithCustomToken(auth, __initial_auth_token);
-          return;
-        } catch (err) {
-          console.warn("Custom token auth failed, falling back to anonymous:", err);
-        }
+
+    const unsub = onAuthStateChanged(auth, (u) => {
+
+      if (u) {
+        setUser(u);
+      } else {
+        setUser(null);
       }
-      try {
-        await signInAnonymously(auth);
-      } catch (err) {
-        console.error("Anonymous auth failed:", err);
-        addToast("Auth Failed: Offline Mode", <ShieldAlert size={16} className="text-red-500" />);
-      }
-    };
-    initAuth();
-    const unsub = onAuthStateChanged(auth, u => { if (u) setUser(u); });
+
+    });
+
     return () => unsub();
+
   }, []);
 
   // Sync User Stats
