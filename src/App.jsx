@@ -7,7 +7,6 @@ import {
 import { initializeApp } from 'firebase/app';
 import {
   getAuth,
-  signInAnonymously,
   onAuthStateChanged,
   signInWithPopup,
   GoogleAuthProvider,
@@ -50,52 +49,7 @@ try {
 } catch (e) {
   console.warn("Firebase Init Error (Offline Mode):", e);
 }
-const loginWithGoogle = async () => {
 
-  if (!auth) return;
-
-  try {
-
-    const provider = new GoogleAuthProvider();
-
-    const result = await signInWithPopup(auth, provider);
-
-    const user = result.user;
-
-    // Save user info in Firestore
-    if (db) {
-      await setDoc(doc(db, "users", user.uid), {
-        name: user.displayName,
-        email: user.email,
-        photo: user.photoURL,
-        xp: 0,
-        level: 1,
-        coins: 0,
-        energy: 100,
-        createdAt: Date.now()
-      }, { merge: true });
-    }
-
-    addToast("Welcome " + user.displayName);
-
-  } catch (e) {
-
-    console.error(e);
-
-    addToast("Login failed");
-
-  }
-
-};
-const logout = async () => {
-
-  if (!auth) return;
-
-  await signOut(auth);
-
-  setUser(null);
-
-};
 
 // ─── ASSETS ──────────────────────────────────────────────────────────────────
 const RUNNER_SVG = `
@@ -189,6 +143,40 @@ export default function App() {
   const [partnerIdInput, setPartnerIdInput] = useState("");
   const [incomingRequests, setIncomingRequests] = useState([]);
   const [partners, setPartners] = useState([]);
+  const loginWithGoogle = async () => {
+    if (!auth) return;
+
+    try {
+      const provider = new GoogleAuthProvider();
+      const result = await signInWithPopup(auth, provider);
+      const u = result.user;
+
+      if (db) {
+        await setDoc(doc(db, "users", u.uid), {
+          name: u.displayName,
+          email: u.email,
+          photo: u.photoURL,
+          xp: 0,
+          level: 1,
+          coins: 0,
+          energy: 100,
+          createdAt: Date.now()
+        }, { merge: true });
+      }
+
+      addToast("Welcome " + u.displayName);
+
+    } catch (e) {
+      console.error(e);
+      addToast("Login failed");
+    }
+  };
+
+  const logout = async () => {
+    if (!auth) return;
+    await signOut(auth);
+    setUser(null);
+  };
 
   // Refs
   const mapContainerRef = useRef(null);
@@ -853,16 +841,35 @@ export default function App() {
         </div>
 
         <div className="flex flex-col items-end gap-3 pointer-events-auto">
-          <button onClick={() => setShowProfileModal(true)}
-            className="bg-slate-800/90 backdrop-blur-md border border-slate-600 pl-3 pr-1 py-1 rounded-full flex items-center gap-2 hover:bg-slate-700 transition-colors shadow-xl group">
-            <div className="flex flex-col items-end leading-none mr-1">
-              <span className="text-[10px] font-bold text-slate-400">LVL {level}</span>
-              <span className="text-xs font-black text-white">{user ? "PRO" : "GUEST"}</span>
-            </div>
-            <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center border border-slate-500 group-hover:border-lime-400 transition-colors">
-              <User size={16} className="text-slate-300" />
-            </div>
-          </button>
+
+          {!user && (
+            <button
+              onClick={loginWithGoogle}
+              className="bg-white text-black px-4 py-2 rounded-xl font-bold shadow-lg hover:scale-105 transition"
+            >
+              Login with Google
+            </button>
+          )}
+
+          {user && (
+            <button
+              onClick={() => setShowProfileModal(true)}
+              className="bg-slate-800/90 backdrop-blur-md border border-slate-600 pl-3 pr-1 py-1 rounded-full flex items-center gap-2 hover:bg-slate-700 transition-colors shadow-xl group"
+            >
+              <div className="flex flex-col items-end leading-none mr-1">
+                <span className="text-[10px] font-bold text-slate-400">
+                  LVL {level}
+                </span>
+                <span className="text-xs font-black text-white">
+                  {user.displayName || "RUNNER"}
+                </span>
+              </div>
+              <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center border border-slate-500 group-hover:border-lime-400 transition-colors">
+                <User size={16} className="text-slate-300" />
+              </div>
+            </button>
+          )}
+
         </div>
       </div>
 
