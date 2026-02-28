@@ -570,7 +570,7 @@ export default function App() {
         }
 
         const now = Date.now();
-        if (db && auth?.currentUser && (now - lastSyncTimeRef.current > 10000)) {
+        if (db && auth?.currentUser && (now - lastSyncTimeRef.current > 5000)) {
           lastSyncTimeRef.current = now;
           setDoc(doc(db, "presence", auth.currentUser.uid), {
             lat: latitude, lng: longitude, updatedAt: now
@@ -602,6 +602,19 @@ export default function App() {
       if (!L) return;
       snapshot.forEach(d => {
         const data = d.data();
+
+        // ⛔ Ignore inactive users (older than 15 seconds)
+        if (!data.updatedAt || Date.now() - data.updatedAt > 15000) {
+          return;
+        }
+        // Remove markers that are no longer in snapshot
+        Object.keys(otherUsersRef.current).forEach(uid => {
+          const exists = snapshot.docs.some(doc => doc.id === uid);
+          if (!exists) {
+            mapInstanceRef.current.removeLayer(otherUsersRef.current[uid]);
+            delete otherUsersRef.current[uid];
+          }
+        });
         if (!data.lat || !data.lng) return;
         const uid = d.id;
         if (uid === user.uid) return;
