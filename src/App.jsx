@@ -172,8 +172,8 @@ export default function App() {
       addToast("Welcome " + u.displayName);
 
     } catch (e) {
+      alert(e.code);
       console.error(e);
-      addToast("Login failed");
     }
   };
 
