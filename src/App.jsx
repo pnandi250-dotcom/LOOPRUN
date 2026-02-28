@@ -1208,13 +1208,27 @@ export default function App() {
       </Modal>
 
       {/* Profile Modal */}
+      <div className="mt-6">
+        <button
+          onClick={async () => {
+            await logout();
+            setShowProfileModal(false);
+            addToast("Logged out successfully");
+          }}
+          className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl transition-colors"
+        >
+          Logout
+        </button>
+      </div>
       <Modal isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} title="Runner Profile">
         <div className="flex flex-col items-center mb-6">
           <div className="w-20 h-20 rounded-full bg-slate-800 border-2 border-lime-400 flex items-center justify-center mb-3 shadow-[0_0_20px_rgba(163,230,53,0.3)]">
             <User size={40} className="text-lime-400" />
           </div>
           <h2 className="text-2xl font-bold text-white">Level {level}</h2>
-          <p className="text-slate-400 text-sm">Runner</p>
+          <p className="text-slate-400 text-sm">
+            {user?.displayName}
+          </p>
         </div>
 
         <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 mb-4">
