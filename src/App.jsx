@@ -125,6 +125,10 @@ export default function App() {
   const [coins, setCoins] = useState(0);
   const [energy, setEnergy] = useState(100);
   const MAX_ENERGY = 100;
+  const XP_PER_LEVEL = 500;
+
+  const currentLevelXP = xp % XP_PER_LEVEL;
+  const progressPercent = (currentLevelXP / XP_PER_LEVEL) * 100;
 
   // App State
   const [libsLoaded, setLibsLoaded] = useState(false);
@@ -602,6 +606,10 @@ export default function App() {
       if (!L) return;
       snapshot.forEach(d => {
         const data = d.data();
+        // Ignore users inactive for more than 15 seconds
+        if (!data.updatedAt || Date.now() - data.updatedAt > 15000) {
+          return;
+        }
 
         // ⛔ Ignore inactive users (older than 15 seconds)
         if (!data.updatedAt || Date.now() - data.updatedAt > 15000) {
@@ -614,6 +622,14 @@ export default function App() {
             mapInstanceRef.current.removeLayer(otherUsersRef.current[uid]);
             delete otherUsersRef.current[uid];
           }
+          // Remove markers that are no longer active
+          Object.keys(otherUsersRef.current).forEach(uid => {
+            const stillActive = snapshot.docs.some(doc => doc.id === uid);
+            if (!stillActive) {
+              mapInstanceRef.current.removeLayer(otherUsersRef.current[uid]);
+              delete otherUsersRef.current[uid];
+            }
+          });
         });
         if (!data.lat || !data.lng) return;
         const uid = d.id;
@@ -873,6 +889,12 @@ export default function App() {
                 <span className="text-[10px] font-bold text-slate-400">
                   LVL {level}
                 </span>
+                <div className="w-20 h-1 bg-slate-700 rounded-full mt-1">
+                  <div
+                    className="h-1 bg-lime-400 rounded-full transition-all"
+                    style={{ width: `${progressPercent}%` }}
+                  />
+                </div>
                 <span className="text-xs font-black text-white">
                   {user.displayName || "RUNNER"}
                 </span>
