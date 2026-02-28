@@ -8,7 +8,8 @@ import { initializeApp } from 'firebase/app';
 import {
   getAuth,
   onAuthStateChanged,
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   GoogleAuthProvider,
   signOut
 } from 'firebase/auth';
@@ -152,7 +153,7 @@ export default function App() {
 
     try {
       const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
+      await signInWithRedirect(auth, provider);
       const u = result.user;
 
       if (db) {
@@ -369,14 +370,18 @@ export default function App() {
 
     if (!auth) return;
 
+    getRedirectResult(auth)
+      .then((result) => {
+        if (result?.user) {
+          addToast("Welcome " + result.user.displayName);
+        }
+      })
+      .catch((error) => {
+        console.error("Redirect login error:", error);
+      });
+
     const unsub = onAuthStateChanged(auth, (u) => {
-
-      if (u) {
-        setUser(u);
-      } else {
-        setUser(null);
-      }
-
+      setUser(u || null);
     });
 
     return () => unsub();
