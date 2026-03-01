@@ -116,9 +116,9 @@ export default function App() {
   const sheetRef = useRef(null);
   const sheetStateRef = useRef('peek');   // 'peek' | 'half' | 'full'
   const startYRef = useRef(null);
-  const startSheetYRef = useRef(null);     // sheet's translateY at drag start
+  const startSheetYRef = useRef(null);
   const rafRef = useRef(null);
-  const currentYRef = useRef(null);     // tracks live finger Y
+  const currentYRef = useRef(null);
 
   // Stats
   const [xp, setXp] = useState(0);
@@ -148,14 +148,13 @@ export default function App() {
   const [partnerIdInput, setPartnerIdInput] = useState("");
   const [incomingRequests, setIncomingRequests] = useState([]);
   const [partners, setPartners] = useState([]);
+
   const loginWithGoogle = async () => {
     if (!auth) return;
-
     try {
       const provider = new GoogleAuthProvider();
       await signInWithRedirect(auth, provider);
       const u = result.user;
-
       if (db) {
         await setDoc(doc(db, "users", u.uid), {
           name: u.displayName,
@@ -168,19 +167,20 @@ export default function App() {
           createdAt: Date.now()
         }, { merge: true });
       }
-
       addToast("Welcome " + u.displayName);
-
     } catch (e) {
       alert(e.code);
       console.error(e);
     }
   };
 
+  // ✅ Clean logout function used by the Profile Modal button
   const logout = async () => {
     if (!auth) return;
     await signOut(auth);
     setUser(null);
+    setShowProfileModal(false);
+    addToast("Logged out successfully");
   };
 
   // Refs
@@ -200,13 +200,10 @@ export default function App() {
   const revealedPointsRef = useRef([]);
 
   // ─── HELPERS ───────────────────────────────────────────────────────────────
-
-  // Toast de-duplication ref to prevent flooding
   const lastToastRef = useRef({ msg: '', time: 0 });
 
   const addToast = (msg, icon = null) => {
     const now = Date.now();
-    // Prevent same toast within 2 seconds
     if (lastToastRef.current.msg === msg && now - lastToastRef.current.time < 2000) return;
     lastToastRef.current = { msg, time: now };
     const id = now;
@@ -230,58 +227,41 @@ export default function App() {
   // ─── LOOP BREAK DETECTION ─────────────────────────────────────────────────
   const checkLoopBreak = async (userLat, userLng) => {
     if (!db || !user) return;
-
     try {
-      // Only search nearby area (~2km range)
       const searchRadius = 0.02;
-
       const loopsQuery = query(
         collection(db, "loops"),
         where("lat", ">", userLat - searchRadius),
         where("lat", "<", userLat + searchRadius)
       );
-
       const snapshot = await getDocs(loopsQuery);
-
       snapshot.forEach(async (docSnap) => {
-
         const loop = docSnap.data();
-
         if (loop.ownerId === user.uid) return;
-
         const dx = userLat - loop.lat;
         const dy = userLng - loop.lng;
         const distanceKm = Math.sqrt(dx * dx + dy * dy) * 111;
-
         if (distanceKm < loop.radius) {
-
           await setDoc(doc(db, "loops", docSnap.id), {
             ownerId: user.uid,
             capturedAt: Date.now()
           }, { merge: true });
-
           addToast("Territory Captured!");
-
           const circle = territoriesRef.current[docSnap.id];
-
           if (circle) animateCapture(circle);
         }
-
       });
-
     } catch (e) {
       console.error("checkLoopBreak error:", e);
     }
   };
 
-  // ─── BOTTOM SHEET (RAF direct-DOM, zero re-renders during drag) ──────────
-  // Heights: how many px of sheet are visible above screen bottom
+  // ─── BOTTOM SHEET ─────────────────────────────────────────────────────────
   const PEEK_H = 200;
   const getHalfH = () => Math.round(window.innerHeight * 0.52);
   const getFullH = () => Math.round(window.innerHeight * 0.92);
-  const SHEET_H = () => Math.round(window.innerHeight * 0.95); // total sheet div height
+  const SHEET_H = () => Math.round(window.innerHeight * 0.95);
 
-  // Convert visible-height → translateY (sheet is position:fixed bottom:0)
   const visibleToY = (visH) => SHEET_H() - visH;
 
   const applyY = (y, animated = false) => {
@@ -299,11 +279,9 @@ export default function App() {
     applyY(y, true);
   };
 
-  // initialise sheet to peek on first render
   useEffect(() => {
     const el = sheetRef.current;
     if (!el) return;
-    // Set height, then place at peek immediately (no transition)
     el.style.height = `${SHEET_H()}px`;
     applyY(visibleToY(PEEK_H), false);
   }, []);
@@ -313,13 +291,11 @@ export default function App() {
 
   const handleDragStart = (e) => {
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    // Record start position
     startYRef.current = getClientY(e);
     currentYRef.current = getClientY(e);
-    // Record current sheet translateY
     const el = sheetRef.current;
     const mat = new DOMMatrix(getComputedStyle(el).transform);
-    startSheetYRef.current = mat.m42; // current Y
+    startSheetYRef.current = mat.m42;
     isDraggingRef.current = true;
     el.style.transition = 'none';
     if (e.type === 'touchstart') e.preventDefault();
@@ -329,15 +305,12 @@ export default function App() {
     if (!isDraggingRef.current) return;
     currentYRef.current = getClientY(e);
     if (e.type === 'touchmove') e.preventDefault();
-
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
     rafRef.current = requestAnimationFrame(() => {
       const delta = currentYRef.current - startYRef.current;
       let next = startSheetYRef.current + delta;
-      // Hard clamp: can't drag above full or below PEEK
       const minY = visibleToY(getFullH());
       const maxY = visibleToY(PEEK_H);
-      // Add rubber-band resistance beyond limits
       if (next < minY) next = minY - (minY - next) * 0.25;
       if (next > maxY) next = maxY + (next - maxY) * 0.25;
       applyY(next, false);
@@ -348,18 +321,14 @@ export default function App() {
     if (!isDraggingRef.current) return;
     isDraggingRef.current = false;
     if (rafRef.current) cancelAnimationFrame(rafRef.current);
-
-    // Determine which state to snap to
     const el = sheetRef.current;
     const mat = new DOMMatrix(getComputedStyle(el).transform);
     const y = mat.m42;
-    const vis = SHEET_H() - y;   // how many px are currently visible
-
+    const vis = SHEET_H() - y;
     const toPeek = Math.abs(vis - PEEK_H);
     const toHalf = Math.abs(vis - getHalfH());
     const toFull = Math.abs(vis - getFullH());
     const minDist = Math.min(toPeek, toHalf, toFull);
-
     if (minDist === toPeek) snapToState('peek');
     else if (minDist === toHalf) snapToState('half');
     else snapToState('full');
@@ -367,28 +336,16 @@ export default function App() {
 
   // ─── AUTH & SETUP ─────────────────────────────────────────────────────────
   useEffect(() => {
-
     if (!auth) return;
-
     getRedirectResult(auth)
       .then((result) => {
-        if (result?.user) {
-          addToast("Welcome " + result.user.displayName);
-        }
+        if (result?.user) addToast("Welcome " + result.user.displayName);
       })
-      .catch((error) => {
-        console.error("Redirect login error:", error);
-      });
-
-    const unsub = onAuthStateChanged(auth, (u) => {
-      setUser(u || null);
-    });
-
+      .catch((error) => console.error("Redirect login error:", error));
+    const unsub = onAuthStateChanged(auth, (u) => setUser(u || null));
     return () => unsub();
-
   }, []);
 
-  // Sync User Stats
   useEffect(() => {
     if (!db || !user) return;
     const unsub = onSnapshot(doc(db, "users", user.uid), snap => {
@@ -403,7 +360,6 @@ export default function App() {
     return () => unsub();
   }, [user]);
 
-  // Energy Refill
   useEffect(() => {
     if (!db || !user) return;
     const refillInterval = setInterval(() => {
@@ -417,7 +373,6 @@ export default function App() {
     return () => clearInterval(refillInterval);
   }, [user]);
 
-  // Incoming Partner Requests
   useEffect(() => {
     if (!db || !user) return;
     const unsub = onSnapshot(collection(db, "requests"), snapshot => {
@@ -435,28 +390,14 @@ export default function App() {
 
   useEffect(() => {
     if (!db || !user) return;
-
     const presenceRef = doc(db, "presence", user.uid);
-
     const handleClose = async () => {
-      try {
-        await deleteDoc(presenceRef);
-      } catch (e) {
-        console.error("Presence cleanup failed", e);
-      }
+      try { await deleteDoc(presenceRef); } catch (e) { console.error("Presence cleanup failed", e); }
     };
-
-    // Runs when tab closes, refreshes, or app exits
     window.addEventListener("beforeunload", handleClose);
-
-    // Runs when component unmounts
-    return () => {
-      handleClose();
-      window.removeEventListener("beforeunload", handleClose);
-    };
-
+    return () => { handleClose(); window.removeEventListener("beforeunload", handleClose); };
   }, [user]);
-  // Load Leaflet
+
   useEffect(() => {
     const loadScripts = async () => {
       try {
@@ -476,9 +417,7 @@ export default function App() {
           });
         }
         setLibsLoaded(true);
-      } catch (err) {
-        console.error("Script Load Error", err);
-      }
+      } catch (err) { console.error("Script Load Error", err); }
     };
     loadScripts();
   }, []);
@@ -493,11 +432,7 @@ export default function App() {
       container.appendChild(canvas);
       fogCanvasRef.current = canvas;
     }
-    const resize = () => {
-      canvas.width = container.offsetWidth;
-      canvas.height = container.offsetHeight;
-      drawFog(map);
-    };
+    const resize = () => { canvas.width = container.offsetWidth; canvas.height = container.offsetHeight; drawFog(map); };
     map.on('moveend zoomend resize move', () => drawFog(map));
     window.addEventListener('resize', resize);
     resize();
@@ -530,9 +465,7 @@ export default function App() {
 
   const revealArea = (lat, lng, meters = 250) => {
     const DEDUP = 0.001;
-    const exists = revealedPointsRef.current.some(p =>
-      Math.abs(p.lat - lat) < DEDUP && Math.abs(p.lng - lng) < DEDUP
-    );
+    const exists = revealedPointsRef.current.some(p => Math.abs(p.lat - lat) < DEDUP && Math.abs(p.lng - lng) < DEDUP);
     if (!exists) {
       revealedPointsRef.current.push({ lat, lng, meters });
       if (mapInstanceRef.current) drawFog(mapInstanceRef.current);
@@ -542,31 +475,21 @@ export default function App() {
   // ─── MAP INITIALIZATION ───────────────────────────────────────────────────
   useEffect(() => {
     if (!libsLoaded || !mapContainerRef.current || mapInstanceRef.current) return;
-
     const L = window.L;
     const map = L.map(mapContainerRef.current, {
       zoomControl: false, attributionControl: false, maxZoom: 18, minZoom: 13
     }).setView([26.7271, 88.3953], 15);
-
     mapInstanceRef.current = map;
-
     L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
       subdomains: 'abcd', maxZoom: 19
     }).addTo(map);
-
     initFogCanvas(map);
-
     if (navigator.geolocation) {
       navigator.geolocation.watchPosition(async pos => {
         const { latitude, longitude } = pos.coords;
         userLocationRef.current = { lat: latitude, lng: longitude };
-
         revealArea(latitude, longitude, 300);
-
-        const avatarIcon = L.divIcon({
-          html: RUNNER_SVG, className: '', iconSize: [44, 44], iconAnchor: [22, 22]
-        });
-
+        const avatarIcon = L.divIcon({ html: RUNNER_SVG, className: '', iconSize: [44, 44], iconAnchor: [22, 22] });
         if (!userMarkerRef.current) {
           userMarkerRef.current = L.marker([latitude, longitude], { icon: avatarIcon, zIndexOffset: 1000 }).addTo(map);
           window.radarCircle = L.circle([latitude, longitude], {
@@ -577,18 +500,12 @@ export default function App() {
           userMarkerRef.current.setLatLng([latitude, longitude]);
           if (window.radarCircle) window.radarCircle.setLatLng([latitude, longitude]);
         }
-
         const now = Date.now();
         if (db && auth?.currentUser && (now - lastSyncTimeRef.current > 5000)) {
           lastSyncTimeRef.current = now;
-          setDoc(doc(db, "presence", auth.currentUser.uid), {
-            lat: latitude, lng: longitude, updatedAt: now
-          }).catch(console.error);
-
-          // Check loop breaks only in the throttled block to save Firestore reads
+          setDoc(doc(db, "presence", auth.currentUser.uid), { lat: latitude, lng: longitude, updatedAt: now }).catch(console.error);
           checkLoopBreak(latitude, longitude);
         }
-
       }, err => console.warn(err), { enableHighAccuracy: true, maximumAge: 10000 });
     }
   }, [libsLoaded]);
@@ -596,8 +513,6 @@ export default function App() {
   // ─── FIRESTORE LISTENERS ──────────────────────────────────────────────────
   useEffect(() => {
     if (!db || !mapInstanceRef.current || !user) return;
-
-    // BUG FIX: Removed orphaned snapshot.forEach block that was outside any listener
 
     const unsubExp = onSnapshot(collection(db, "explored"), snapshot => {
       snapshot.forEach(d => {
@@ -611,85 +526,34 @@ export default function App() {
       if (!L) return;
       snapshot.forEach(d => {
         const data = d.data();
-        // Ignore users inactive for more than 15 seconds
-        if (!data.updatedAt || Date.now() - data.updatedAt > 15000) {
-          return;
-        }
-
-        // ⛔ Ignore inactive users (older than 15 seconds)
-        if (!data.updatedAt || Date.now() - data.updatedAt > 15000) {
-          return;
-        }
-        // Remove markers that are no longer in snapshot
+        if (!data.updatedAt || Date.now() - data.updatedAt > 15000) return;
         Object.keys(otherUsersRef.current).forEach(uid => {
           const exists = snapshot.docs.some(doc => doc.id === uid);
-          if (!exists) {
-            mapInstanceRef.current.removeLayer(otherUsersRef.current[uid]);
-            delete otherUsersRef.current[uid];
-          }
-          // Remove markers that are no longer active
-          Object.keys(otherUsersRef.current).forEach(uid => {
-            const stillActive = snapshot.docs.some(doc => doc.id === uid);
-            if (!stillActive) {
-              mapInstanceRef.current.removeLayer(otherUsersRef.current[uid]);
-              delete otherUsersRef.current[uid];
-            }
-          });
+          if (!exists) { mapInstanceRef.current.removeLayer(otherUsersRef.current[uid]); delete otherUsersRef.current[uid]; }
         });
         if (!data.lat || !data.lng) return;
         const uid = d.id;
         if (uid === user.uid) return;
-
-        const dist = Math.sqrt(
-          Math.pow(data.lat - userLocationRef.current.lat, 2) +
-          Math.pow(data.lng - userLocationRef.current.lng, 2)
-        );
+        const dist = Math.sqrt(Math.pow(data.lat - userLocationRef.current.lat, 2) + Math.pow(data.lng - userLocationRef.current.lng, 2));
         if (dist > 0.05) return;
-
         const isPartner = partners.includes(uid);
         if (!otherUsersRef.current[uid]) {
-          const icon = L.divIcon({
-            html: isPartner ? RUNNER_SVG : OTHER_RUNNER_SVG,
-            className: '',
-            iconSize: isPartner ? [44, 44] : [36, 36],
-            iconAnchor: isPartner ? [22, 22] : [18, 18]
-          });
-          otherUsersRef.current[uid] = L.marker([data.lat, data.lng], { icon })
-            .addTo(mapInstanceRef.current)
-            .bindPopup("Runner");
+          const icon = L.divIcon({ html: isPartner ? RUNNER_SVG : OTHER_RUNNER_SVG, className: '', iconSize: isPartner ? [44, 44] : [36, 36], iconAnchor: isPartner ? [22, 22] : [18, 18] });
+          otherUsersRef.current[uid] = L.marker([data.lat, data.lng], { icon }).addTo(mapInstanceRef.current).bindPopup("Runner");
         } else {
           otherUsersRef.current[uid].setLatLng([data.lat, data.lng]);
         }
       });
     });
 
-    // BUG FIX: Removed the orphaned snapshot.forEach after unsubLoops.
-    // The loop rendering is now fully self-contained inside the listener callback.
-    const loopsQuery = query(
-      collection(db, "loops"),
-      where("ownerId", "==", user.uid),
-      orderBy("createdAt", "desc"),
-      limit(1)
-    );
-
+    const loopsQuery = query(collection(db, "loops"), where("ownerId", "==", user.uid), orderBy("createdAt", "desc"), limit(1));
     const unsubLoops = onSnapshot(loopsQuery, snapshot => {
-      // Remove old circles
-      Object.values(territoriesRef.current).forEach(circle => {
-        if (mapInstanceRef.current) mapInstanceRef.current.removeLayer(circle);
-      });
+      Object.values(territoriesRef.current).forEach(circle => { if (mapInstanceRef.current) mapInstanceRef.current.removeLayer(circle); });
       territoriesRef.current = {};
-
-      // Add current loops
       snapshot.forEach(docSnap => {
         const data = docSnap.data();
         if (!window.L || !mapInstanceRef.current) return;
-        const circle = window.L.circle([data.lat, data.lng], {
-          radius: data.radius * 1000,
-          color: "#a3e635",
-          fillColor: "#a3e635",
-          fillOpacity: 0.15,
-          weight: 2
-        }).addTo(mapInstanceRef.current);
+        const circle = window.L.circle([data.lat, data.lng], { radius: data.radius * 1000, color: "#a3e635", fillColor: "#a3e635", fillOpacity: 0.15, weight: 2 }).addTo(mapInstanceRef.current);
         territoriesRef.current[docSnap.id] = circle;
       });
     });
@@ -698,23 +562,14 @@ export default function App() {
   }, [user, libsLoaded, partners]);
 
   // ─── GAME LOGIC ───────────────────────────────────────────────────────────
-  // BUG FIX: ENERGY_COST is now a computed value used only inside functions,
-  // not as a side-effect at component render level.
   const getEnergyCost = () => Math.floor(sliderValue * 5);
 
   const generateLoop = async () => {
     if (!libsLoaded || !window.L) return;
-
-    // BUG FIX: Energy check is now correctly inside the function
     const cost = getEnergyCost();
-    if (energy < cost) {
-      addToast("Not enough energy!", <Zap size={16} className="text-yellow-400" />);
-      return;
-    }
-
+    if (energy < cost) { addToast("Not enough energy!", <Zap size={16} className="text-yellow-400" />); return; }
     setIsRouting(true);
     await new Promise(r => setTimeout(r, 600));
-
     try {
       const R = 6371;
       const dist = parseFloat(sliderValue) * 0.8;
@@ -723,41 +578,23 @@ export default function App() {
       const cur = userLocationRef.current;
       const centerLat = cur.lat + (radiusKm / R) * (180 / Math.PI) * Math.cos(angle);
       const centerLng = cur.lng + (radiusKm / R) * (180 / Math.PI) * Math.sin(angle) / Math.cos(cur.lat * Math.PI / 180);
-
       const url = `https://router.project-osrm.org/route/v1/foot/${cur.lng},${cur.lat};${centerLng},${centerLat};${cur.lng},${cur.lat}?overview=full&geometries=geojson`;
       const res = await fetch(url);
       const data = await res.json();
-
       if (data.routes?.[0]) {
         const route = data.routes[0];
         const L = window.L;
         if (routeLayerRef.current) mapInstanceRef.current.removeLayer(routeLayerRef.current);
-
-        routeLayerRef.current = L.geoJSON(route.geometry, {
-          style: { color: '#a3e635', weight: 6, opacity: 0.85, lineCap: 'round' }
-        }).addTo(mapInstanceRef.current);
-
+        routeLayerRef.current = L.geoJSON(route.geometry, { style: { color: '#a3e635', weight: 6, opacity: 0.85, lineCap: 'round' } }).addTo(mapInstanceRef.current);
         mapInstanceRef.current.fitBounds(routeLayerRef.current.getBounds(), { padding: [50, 50] });
-
-        if (db && user) {
-          addDoc(collection(db, "loops"), {
-            lat: centerLat, lng: centerLng, radius: radiusKm,
-            ownerId: user.uid, createdAt: Date.now()
-          });
-        }
-
+        if (db && user) addDoc(collection(db, "loops"), { lat: centerLat, lng: centerLng, radius: radiusKm, ownerId: user.uid, createdAt: Date.now() });
         const km = route.distance / 1000;
         setDistanceDisplay(km.toFixed(1));
         setTimeDisplay(`${Math.floor(km * 6)}:00`);
         setRouteActive(true);
-
-        // Deduct energy
         const newEnergy = energy - cost;
         setEnergy(newEnergy);
-        if (db && user) {
-          setDoc(doc(db, "users", user.uid), { energy: newEnergy }, { merge: true });
-        }
-
+        if (db && user) setDoc(doc(db, "users", user.uid), { energy: newEnergy }, { merge: true });
         addToast("Route Generated. Let's run!", <MapPin size={16} className="text-lime-400" />);
       } else {
         addToast("No route found. Try again.", <ShieldAlert size={16} className="text-red-500" />);
@@ -773,27 +610,12 @@ export default function App() {
   const finishRun = async () => {
     const earned = Math.floor(parseFloat(distanceDisplay) * 100);
     const earnedCoins = Math.floor(earned / 10);
-
     const newXp = xp + earned;
     const newLevel = Math.floor(newXp / 500) + 1;
     const newCoins = coins + earnedCoins;
-
-    setCoins(newCoins);
-    setXp(newXp);
-    setLevel(newLevel);
-    setRouteActive(false);
-
-    if (routeLayerRef.current && mapInstanceRef.current) {
-      mapInstanceRef.current.removeLayer(routeLayerRef.current);
-      routeLayerRef.current = null;
-    }
-
-    if (db && user) {
-      setDoc(doc(db, "users", user.uid), {
-        xp: newXp, level: newLevel, coins: newCoins
-      }, { merge: true });
-    }
-
+    setCoins(newCoins); setXp(newXp); setLevel(newLevel); setRouteActive(false);
+    if (routeLayerRef.current && mapInstanceRef.current) { mapInstanceRef.current.removeLayer(routeLayerRef.current); routeLayerRef.current = null; }
+    if (db && user) setDoc(doc(db, "users", user.uid), { xp: newXp, level: newLevel, coins: newCoins }, { merge: true });
     addToast(`Run Complete! +${earned} XP`, <Trophy size={16} className="text-yellow-400" />);
   };
 
@@ -811,17 +633,9 @@ export default function App() {
 
   const handleSendPartnerRequest = async () => {
     if (!partnerIdInput.trim()) return;
-    if (!db || !user) {
-      addToast("Offline Mode", <Zap size={16} />);
-      return;
-    }
+    if (!db || !user) { addToast("Offline Mode", <Zap size={16} />); return; }
     try {
-      await addDoc(collection(db, "requests"), {
-        from: user.uid,
-        to: partnerIdInput.trim(),
-        status: "pending",
-        createdAt: Date.now()
-      });
+      await addDoc(collection(db, "requests"), { from: user.uid, to: partnerIdInput.trim(), status: "pending", createdAt: Date.now() });
       addToast("Request Sent!", <Check size={16} className="text-blue-400" />);
       setPartnerIdInput("");
       setShowPartnerModal(false);
@@ -848,11 +662,7 @@ export default function App() {
     <div className="h-screen w-screen bg-slate-950 text-white font-sans flex flex-col overflow-hidden relative selection:bg-lime-400/30">
 
       <ToastManager toasts={toasts} />
-
-      {/* Map Background */}
       <div ref={mapContainerRef} className="absolute inset-0 z-0" />
-
-      {/* Top gradient for readability */}
       <div className="absolute top-0 left-0 w-full h-32 bg-gradient-to-b from-slate-900/90 to-transparent z-10 pointer-events-none" />
 
       {/* Header */}
@@ -875,80 +685,51 @@ export default function App() {
         </div>
 
         <div className="flex flex-col items-end gap-3 pointer-events-auto">
-
           {!user && (
-            <button
-              onClick={loginWithGoogle}
-              className="bg-white text-black px-4 py-2 rounded-xl font-bold shadow-lg hover:scale-105 transition"
-            >
+            <button onClick={loginWithGoogle} className="bg-white text-black px-4 py-2 rounded-xl font-bold shadow-lg hover:scale-105 transition">
               Login with Google
             </button>
           )}
-
           {user && (
             <button
               onClick={() => setShowProfileModal(true)}
               className="bg-slate-800/90 backdrop-blur-md border border-slate-600 pl-3 pr-1 py-1 rounded-full flex items-center gap-2 hover:bg-slate-700 transition-colors shadow-xl group"
             >
               <div className="flex flex-col items-end leading-none mr-1">
-                <span className="text-[10px] font-bold text-slate-400">
-                  LVL {level}
-                </span>
+                <span className="text-[10px] font-bold text-slate-400">LVL {level}</span>
                 <div className="w-20 h-1 bg-slate-700 rounded-full mt-1">
-                  <div
-                    className="h-1 bg-lime-400 rounded-full transition-all"
-                    style={{ width: `${progressPercent}%` }}
-                  />
+                  <div className="h-1 bg-lime-400 rounded-full transition-all" style={{ width: `${progressPercent}%` }} />
                 </div>
-                <span className="text-xs font-black text-white">
-                  {user.displayName || "RUNNER"}
-                </span>
+                <span className="text-xs font-black text-white">{user.displayName || "RUNNER"}</span>
               </div>
               <div className="w-8 h-8 rounded-full bg-slate-700 flex items-center justify-center border border-slate-500 group-hover:border-lime-400 transition-colors">
                 <User size={16} className="text-slate-300" />
               </div>
             </button>
           )}
-
         </div>
       </div>
 
-      {/* BUG FIX: Floating HUD - All 3 stat widgets now correctly inside the same positioned container */}
+      {/* Floating HUD */}
       <div className="absolute top-24 right-4 z-40 flex flex-col gap-3 pointer-events-none">
         <div className="bg-slate-900/80 backdrop-blur p-3 rounded-2xl border border-slate-700 shadow-xl pointer-events-auto">
-          <div className="flex items-center gap-2 mb-1">
-            <Trophy size={14} className="text-yellow-400" />
-            <span className="text-xs font-bold text-slate-300">BALANCE</span>
-          </div>
+          <div className="flex items-center gap-2 mb-1"><Trophy size={14} className="text-yellow-400" /><span className="text-xs font-bold text-slate-300">BALANCE</span></div>
           <div className="text-xl font-black text-white">{coins.toLocaleString()} <span className="text-[10px] text-yellow-400">COINS</span></div>
         </div>
         <div className="bg-slate-900/80 backdrop-blur p-3 rounded-2xl border border-slate-700 shadow-xl pointer-events-auto">
-          <div className="flex items-center gap-2 mb-1">
-            <Flame size={14} className="text-orange-400" />
-            <span className="text-xs font-bold text-slate-300">XP</span>
-          </div>
+          <div className="flex items-center gap-2 mb-1"><Flame size={14} className="text-orange-400" /><span className="text-xs font-bold text-slate-300">XP</span></div>
           <div className="text-xl font-black text-white">{xp.toLocaleString()} <span className="text-[10px] text-orange-400">PTS</span></div>
         </div>
-        {/* BUG FIX: Energy widget was floating outside this container — now correctly placed here */}
         <div className="bg-slate-900/80 backdrop-blur p-3 rounded-2xl border border-slate-700 shadow-xl pointer-events-auto">
-          <div className="flex items-center gap-2 mb-1">
-            <Zap size={14} className="text-blue-400" />
-            <span className="text-xs font-bold text-slate-300">ENERGY</span>
-          </div>
-          <div className="text-xl font-black text-white">
-            {energy}<span className="text-[10px] text-blue-400">/{MAX_ENERGY}</span>
-          </div>
-          {/* Energy bar */}
+          <div className="flex items-center gap-2 mb-1"><Zap size={14} className="text-blue-400" /><span className="text-xs font-bold text-slate-300">ENERGY</span></div>
+          <div className="text-xl font-black text-white">{energy}<span className="text-[10px] text-blue-400">/{MAX_ENERGY}</span></div>
           <div className="w-full h-1 bg-slate-700 rounded-full mt-2">
-            <div
-              className="h-1 bg-blue-400 rounded-full transition-all"
-              style={{ width: `${(energy / MAX_ENERGY) * 100}%` }}
-            />
+            <div className="h-1 bg-blue-400 rounded-full transition-all" style={{ width: `${(energy / MAX_ENERGY) * 100}%` }} />
           </div>
         </div>
       </div>
 
-      {/* Safety & Social - Left Side */}
+      {/* Safety & Social */}
       <div className="absolute top-40 left-4 z-40 flex flex-col gap-4 pointer-events-auto">
         <button onClick={() => setShowPartnerModal(true)}
           className="w-10 h-10 rounded-full bg-blue-600 text-white flex items-center justify-center shadow-lg hover:scale-110 transition-transform hover:bg-blue-500">
@@ -967,17 +748,15 @@ export default function App() {
         </button>
       </div>
 
-      {/* BUG FIX: Incoming request banners now stack properly using flex column layout */}
+      {/* Incoming request banners */}
       {incomingRequests.length > 0 && (
         <div className="absolute left-16 top-40 z-50 flex flex-col gap-2">
           {incomingRequests.map(req => (
             <div key={req.id} className="bg-blue-900/90 backdrop-blur border border-blue-700 px-4 py-3 rounded-xl shadow-xl max-w-[200px]">
               <div className="text-xs text-blue-200 mb-1 font-bold">Partner Request</div>
               <div className="text-[10px] text-slate-400 break-all mb-2 font-mono">{req.from.slice(0, 16)}...</div>
-              <button
-                onClick={() => acceptPartnerRequest(req.id, req.from)}
-                className="bg-green-500 hover:bg-green-400 px-3 py-1 rounded text-white text-xs font-bold w-full transition-colors"
-              >
+              <button onClick={() => acceptPartnerRequest(req.id, req.from)}
+                className="bg-green-500 hover:bg-green-400 px-3 py-1 rounded text-white text-xs font-bold w-full transition-colors">
                 ACCEPT
               </button>
             </div>
@@ -1001,26 +780,18 @@ export default function App() {
         </div>
       )}
 
-      {/* ── BOTTOM SHEET (fixed-position, ref-driven, zero re-renders during drag) ── */}
+      {/* ── BOTTOM SHEET ── */}
       <div
         ref={sheetRef}
         className="fixed bottom-0 left-0 w-full z-50 bg-slate-950/96 backdrop-blur-2xl rounded-t-[2rem] border-t border-white/10 shadow-[0_-20px_60px_rgba(0,0,0,0.7)] overflow-hidden"
         style={{ willChange: 'transform', touchAction: 'none' }}
       >
-        {/* ── DRAG ZONE — only this strip initiates drag ── */}
         <div
           className="flex flex-col items-center pt-3 pb-2 cursor-grab active:cursor-grabbing select-none"
-          onTouchStart={handleDragStart}
-          onTouchMove={handleDragMove}
-          onTouchEnd={handleDragEnd}
-          onMouseDown={handleDragStart}
-          onMouseMove={handleDragMove}
-          onMouseUp={handleDragEnd}
-          onMouseLeave={handleDragEnd}
+          onTouchStart={handleDragStart} onTouchMove={handleDragMove} onTouchEnd={handleDragEnd}
+          onMouseDown={handleDragStart} onMouseMove={handleDragMove} onMouseUp={handleDragEnd} onMouseLeave={handleDragEnd}
         >
-          {/* Pill handle */}
           <div className="w-10 h-1 rounded-full bg-white/20 mb-1" />
-          {/* Compact peek row — always visible even at peek height */}
           <div className="w-full px-5 py-2 flex items-center justify-between">
             <div className="flex items-baseline gap-1">
               <span className="text-3xl font-black text-white tracking-tighter leading-none">
@@ -1034,13 +805,9 @@ export default function App() {
               <span className="text-xs text-slate-500 font-bold">
                 {mode === 'run' ? timeDisplay : `~${Math.floor(sliderValue * 8)} kcal`}
               </span>
-              {/* Quick action button in peek row */}
               {mode === 'run' && !routeActive && (
-                <button
-                  onClick={generateLoop}
-                  disabled={isRouting || !libsLoaded || energy < getEnergyCost()}
-                  className={`bg-lime-400 text-slate-900 font-black text-xs px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-lg shadow-lime-900/30 transition-all active:scale-95 ${(isRouting || energy < getEnergyCost()) ? 'opacity-40' : 'hover:bg-lime-300'}`}
-                >
+                <button onClick={generateLoop} disabled={isRouting || !libsLoaded || energy < getEnergyCost()}
+                  className={`bg-lime-400 text-slate-900 font-black text-xs px-4 py-2 rounded-xl flex items-center gap-1.5 shadow-lg shadow-lime-900/30 transition-all active:scale-95 ${(isRouting || energy < getEnergyCost()) ? 'opacity-40' : 'hover:bg-lime-300'}`}>
                   {isRouting ? <Activity size={14} className="animate-spin" /> : <Navigation size={14} fill="currentColor" />}
                   {isRouting ? 'ROUTING…' : 'GO'}
                 </button>
@@ -1061,46 +828,29 @@ export default function App() {
           </div>
         </div>
 
-        {/* ── SCROLLABLE CONTENT (shows when sheet is half/full) ── */}
         <div className="overflow-y-auto px-5 pb-10" style={{ maxHeight: 'calc(92vh - 100px)' }}>
-
-          {/* Labels */}
           <div className="flex justify-between items-center mb-4 mt-1">
-            <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">
-              {mode === 'run' ? 'DISTANCE GOAL' : 'TIME GOAL'}
-            </p>
+            <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">{mode === 'run' ? 'DISTANCE GOAL' : 'TIME GOAL'}</p>
             <p className="text-slate-500 text-[10px] font-black uppercase tracking-widest">ESTIMATED</p>
           </div>
 
-          {/* Energy cost preview */}
           {mode === 'run' && !routeActive && (
             <div className="flex items-center gap-1.5 mb-4 bg-slate-900/60 px-3 py-2 rounded-xl border border-slate-800">
               <Zap size={12} className="text-blue-400" />
               <span className="text-xs text-slate-400">
-                Cost: <span className={`font-bold ${energy < getEnergyCost() ? 'text-red-400' : 'text-blue-300'}`}>
-                  {getEnergyCost()} energy
-                </span>
+                Cost: <span className={`font-bold ${energy < getEnergyCost() ? 'text-red-400' : 'text-blue-300'}`}>{getEnergyCost()} energy</span>
                 {energy < getEnergyCost() && <span className="text-red-400 ml-1 font-bold">— not enough!</span>}
               </span>
               <span className="ml-auto text-xs text-slate-500">{energy}/{MAX_ENERGY} remaining</span>
             </div>
           )}
 
-          {/* Slider */}
           {!routeActive && !gymActive && (
             <div className="mb-6 relative">
               <div className={`absolute top-1/2 left-0 w-full h-1 -mt-0.5 rounded-full ${mode === 'run' ? 'bg-lime-900/60' : 'bg-pink-900/60'}`} />
-              <input
-                type="range"
-                min={mode === 'run' ? 1 : 10}
-                max={mode === 'run' ? 20 : 120}
-                step={mode === 'run' ? 0.5 : 5}
+              <input type="range" min={mode === 'run' ? 1 : 10} max={mode === 'run' ? 20 : 120} step={mode === 'run' ? 0.5 : 5}
                 value={sliderValue}
-                onChange={e => {
-                  const val = parseFloat(e.target.value);
-                  setSliderValue(val);
-                  if (mode === 'run') setTimeDisplay(`${Math.floor(val * 6)}:00`);
-                }}
+                onChange={e => { const val = parseFloat(e.target.value); setSliderValue(val); if (mode === 'run') setTimeDisplay(`${Math.floor(val * 6)}:00`); }}
                 className="relative w-full h-8 opacity-0 z-20 cursor-pointer"
               />
               <div className="absolute top-1/2 -mt-3.5 h-7 w-7 rounded-full bg-white shadow-xl pointer-events-none z-10 flex items-center justify-center"
@@ -1112,22 +862,16 @@ export default function App() {
             </div>
           )}
 
-          {/* Preferences (Run Mode Only) */}
           {mode === 'run' && !routeActive && (
             <div className="grid grid-cols-4 gap-2 mb-6">
-              {[
-                { icon: Trees, label: "Shade" }, { icon: Zap, label: "Lit" },
-                { icon: Wind, label: "Air" }, { icon: VolumeX, label: "Quiet" }
-              ].map((item, i) => (
-                <button key={i}
-                  className="flex flex-col items-center justify-center gap-1.5 bg-slate-900/80 p-3 rounded-2xl text-[10px] font-bold text-slate-500 border border-white/5 hover:border-white/20 hover:text-white transition-all active:scale-95">
+              {[{ icon: Trees, label: "Shade" }, { icon: Zap, label: "Lit" }, { icon: Wind, label: "Air" }, { icon: VolumeX, label: "Quiet" }].map((item, i) => (
+                <button key={i} className="flex flex-col items-center justify-center gap-1.5 bg-slate-900/80 p-3 rounded-2xl text-[10px] font-bold text-slate-500 border border-white/5 hover:border-white/20 hover:text-white transition-all active:scale-95">
                   <item.icon size={18} /> {item.label}
                 </button>
               ))}
             </div>
           )}
 
-          {/* Full-size action button (visible when sheet is half/full) */}
           <div className="mb-2">
             {mode === 'run' ? (
               routeActive ? (
@@ -1136,16 +880,9 @@ export default function App() {
                   <Flag size={22} fill="currentColor" /> COMPLETE RUN
                 </button>
               ) : (
-                <button
-                  onClick={generateLoop}
-                  disabled={isRouting || !libsLoaded || energy < getEnergyCost()}
-                  className={`w-full bg-gradient-to-r from-lime-400 to-lime-500 text-slate-900 font-black text-lg py-5 rounded-2xl shadow-xl shadow-lime-900/30 transition-all active:scale-[0.98] flex items-center justify-center gap-3 ${(isRouting || energy < getEnergyCost()) ? 'opacity-40' : 'hover:from-lime-300 hover:to-lime-400'}`}
-                >
-                  {isRouting
-                    ? <><Activity className="animate-spin" size={22} /> CALCULATING…</>
-                    : !libsLoaded ? 'LOADING MAP…'
-                      : <><Navigation size={22} fill="currentColor" /> GENERATE LOOP</>
-                  }
+                <button onClick={generateLoop} disabled={isRouting || !libsLoaded || energy < getEnergyCost()}
+                  className={`w-full bg-gradient-to-r from-lime-400 to-lime-500 text-slate-900 font-black text-lg py-5 rounded-2xl shadow-xl shadow-lime-900/30 transition-all active:scale-[0.98] flex items-center justify-center gap-3 ${(isRouting || energy < getEnergyCost()) ? 'opacity-40' : 'hover:from-lime-300 hover:to-lime-400'}`}>
+                  {isRouting ? <><Activity className="animate-spin" size={22} /> CALCULATING…</> : !libsLoaded ? 'LOADING MAP…' : <><Navigation size={22} fill="currentColor" /> GENERATE LOOP</>}
                 </button>
               )
             ) : (
@@ -1163,7 +900,6 @@ export default function App() {
             )}
           </div>
 
-          {/* Snap state indicator dots */}
           <div className="flex justify-center gap-1.5 mt-4">
             {['peek', 'half', 'full'].map(s => (
               <button key={s} onClick={() => snapToState(s)}
@@ -1178,67 +914,39 @@ export default function App() {
       {/* Partner Modal */}
       <Modal isOpen={showPartnerModal} onClose={() => setShowPartnerModal(false)} title="Add Running Partner">
         <p className="text-slate-400 text-sm mb-4">Enter your friend's Unique ID to see them on the map.</p>
-        <input
-          type="text"
-          placeholder="Paste ID here..."
-          value={partnerIdInput}
-          onChange={e => setPartnerIdInput(e.target.value)}
-          className="w-full bg-slate-800 border border-slate-600 text-white p-4 rounded-xl font-mono text-sm focus:outline-none focus:border-blue-500 mb-4"
-        />
-        <button onClick={handleSendPartnerRequest}
-          className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-colors">
+        <input type="text" placeholder="Paste ID here..." value={partnerIdInput} onChange={e => setPartnerIdInput(e.target.value)}
+          className="w-full bg-slate-800 border border-slate-600 text-white p-4 rounded-xl font-mono text-sm focus:outline-none focus:border-blue-500 mb-4" />
+        <button onClick={handleSendPartnerRequest} className="w-full bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 rounded-xl transition-colors">
           Send Request
         </button>
-
         {incomingRequests.length > 0 && (
           <div className="mt-4">
             <p className="text-sm text-slate-400 mb-2">Incoming Requests:</p>
             {incomingRequests.map(req => (
               <div key={req.id} className="bg-slate-800 p-3 rounded-lg mb-2">
                 <p className="text-xs text-white break-all font-mono">{req.from}</p>
-                <button
-                  onClick={() => acceptPartnerRequest(req.id, req.from)}
-                  className="bg-green-500 hover:bg-green-400 text-white px-3 py-1 rounded mt-2 text-xs font-bold transition-colors">
-                  Accept
-                </button>
+                <button onClick={() => acceptPartnerRequest(req.id, req.from)}
+                  className="bg-green-500 hover:bg-green-400 text-white px-3 py-1 rounded mt-2 text-xs font-bold transition-colors">Accept</button>
               </div>
             ))}
           </div>
         )}
       </Modal>
 
-      {/* Profile Modal */}
-      <div className="mt-6">
-        <button
-          onClick={async () => {
-            await logout();
-            setShowProfileModal(false);
-            addToast("Logged out successfully");
-          }}
-          className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl transition-colors"
-        >
-          Logout
-        </button>
-      </div>
+      {/* ✅ Profile Modal — logout button correctly placed INSIDE here */}
       <Modal isOpen={showProfileModal} onClose={() => setShowProfileModal(false)} title="Runner Profile">
         <div className="flex flex-col items-center mb-6">
           <div className="w-20 h-20 rounded-full bg-slate-800 border-2 border-lime-400 flex items-center justify-center mb-3 shadow-[0_0_20px_rgba(163,230,53,0.3)]">
             <User size={40} className="text-lime-400" />
           </div>
           <h2 className="text-2xl font-bold text-white">Level {level}</h2>
-          <p className="text-slate-400 text-sm">
-            {user?.displayName}
-          </p>
+          <p className="text-slate-400 text-sm">{user?.displayName}</p>
         </div>
 
         <div className="bg-slate-800/50 p-4 rounded-xl border border-slate-700 mb-4">
           <div className="flex justify-between items-center mb-2">
             <span className="text-xs font-bold text-slate-400 uppercase">Your Unique ID</span>
-            <button
-              onClick={() => {
-                if (user) navigator.clipboard.writeText(user.uid);
-                addToast("ID Copied!", <Copy size={16} />);
-              }}
+            <button onClick={() => { if (user) navigator.clipboard.writeText(user.uid); addToast("ID Copied!", <Copy size={16} />); }}
               className="text-blue-400 hover:text-blue-300 text-xs flex items-center gap-1">
               <Copy size={12} /> Copy
             </button>
@@ -1248,8 +956,7 @@ export default function App() {
           </code>
         </div>
 
-        {/* Stats summary */}
-        <div className="grid grid-cols-3 gap-2 text-center">
+        <div className="grid grid-cols-3 gap-2 text-center mb-6">
           <div className="bg-slate-800/50 p-3 rounded-xl border border-slate-700">
             <div className="text-lg font-black text-yellow-400">{coins.toLocaleString()}</div>
             <div className="text-[10px] text-slate-400 font-bold">COINS</div>
@@ -1263,22 +970,16 @@ export default function App() {
             <div className="text-[10px] text-slate-400 font-bold">ENERGY</div>
           </div>
         </div>
-      </Modal>
-      <div className="mt-6">
+
+        {/* ✅ Logout button — properly inside the modal */}
         <button
-          onClick={async () => {
-            await signOut(auth);
-            setUser(null);
-            setShowProfileModal(false);
-            addToast("Logged out successfully");
-          }}
-          className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl transition-colors"
+          onClick={logout}
+          className="w-full bg-red-600 hover:bg-red-500 active:scale-[0.98] text-white font-bold py-3 rounded-xl transition-all flex items-center justify-center gap-2"
         >
-          Logout
+          <X size={16} /> Logout
         </button>
-      </div>
+      </Modal>
 
     </div>
-
   );
 }
