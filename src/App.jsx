@@ -1264,7 +1264,21 @@ export default function App() {
           </div>
         </div>
       </Modal>
+      <div className="mt-6">
+        <button
+          onClick={async () => {
+            await signOut(auth);
+            setUser(null);
+            setShowProfileModal(false);
+            addToast("Logged out successfully");
+          }}
+          className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-xl transition-colors"
+        >
+          Logout
+        </button>
+      </div>
 
     </div>
+
   );
 }
